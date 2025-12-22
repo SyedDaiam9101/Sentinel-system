@@ -1,0 +1,5 @@
+dependencies:
+  espressif/arduino-esp32: "*"
+  espressif/esp32-camera: "*"
+  links2004/arduinoWebSockets: "*"
+  espressif/esp-face: "*"
