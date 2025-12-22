@@ -23,13 +23,11 @@ graph TD
 ## 🖥️ Dashboard Interface
 
 ### Main Dashboard
-![Pyramid Surveillance Dashboard]:
-![alt text](image.png)
+
 *Real-time surveillance dashboard with 4-sector camera feeds, system status tiles, and event logging capabilities.*
 
 ### Setup & Configuration
-![Setup Modal]:
-![alt text](image-1.png)
+
 
 *Quick setup interface for configuring Access Point or Station mode with step-by-step connection guidance.*
 
@@ -67,3 +65,4 @@ graph TD
 
 ---
 *Created by Antigravity AI Ultra-Dense Kernel.*
+
