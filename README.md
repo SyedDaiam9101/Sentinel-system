@@ -64,5 +64,6 @@ graph TD
 *   **Encapsulated State**: The Brain maintains a global `NeuroState` including heartbeats for all nodes.
 
 ---
-*Created by Antigravity AI Ultra-Dense Kernel.*
+*Created by Syed Daiam.*
+
 
