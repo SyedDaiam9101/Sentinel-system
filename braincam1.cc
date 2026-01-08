@@ -12,19 +12,6 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
-/**
- * 🏔️ PYRAMID SENTINEL PRO - TITANIUM CAMERA UNIT
- * Version: 4.1.0 "NEURAL ARMOR & ANALYTICS"
- * 
- * Hardware: AI-Thinker ESP32-CAM (NORTH SECTOR)
- * 
- * DESIGN SPECIFICATION:
- * - High-Accuracy Face Detection Matrix
- * - Thermal Throttling & Power Governor
- * - MJPEG High-Speed Streaming Server
- * - Machine Health Monitoring (Heap/Stack/Temp)
- * - Pro-Active Threat Push Architecture
- */
 
 // ==========================================================
 // 📍 HARDWARE PINS (STRICT AI-THINKER STANDARD)
@@ -336,3 +323,4 @@ void loop() {
     webSocket.loop();
     health.uptime = millis() / 1000;
 }
+
