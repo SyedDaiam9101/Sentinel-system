@@ -4,6 +4,7 @@ const DB_VERSION = 1;
 const STORAGE_LIMIT_MB = 1000; // ~1GB Limit
 
 let db = null;
+let pendingSnapshots = [];
 
 /* ====== DYNAMIC IP CONFIGURATION ====== */
 function normalizeIP(url) {
@@ -17,8 +18,7 @@ let MAIN_IP = `http://${normalizeIP(MAIN_IP_RAW)}`;
 let CAM_IPS_RAW = JSON.parse(localStorage.getItem('pyramid_cam_ips')) || {
     1: "192.168.4.2:80",
     2: "192.168.4.3:80",
-    3: "192.168.4.4:80",
-    4: "192.168.4.5:80"
+    3: "192.168.4.4:80"
 };
 
 let ws = null;
@@ -58,7 +58,7 @@ function initDB() {
 
         request.onsuccess = (event) => {
             db = event.target.result;
-            console.log('IndexedDB: Persistent Storage System Active (1GB Cap)');
+            // console.log('IndexedDB: Persistent Storage System Active (1GB Cap)');
             resolve(db);
         };
 
@@ -357,8 +357,7 @@ async function saveSetup() {
             updateIPs(`http://${result.ip}`, {
                 1: `${base}.${last + 1}:80`,
                 2: `${base}.${last + 2}:80`,
-                3: `${base}.${last + 3}:80`,
-                4: `${base}.${last + 4}:80`
+                3: `${base}.${last + 3}:80`
             });
         }
 
@@ -399,7 +398,7 @@ function validateIP(ip) {
 }
 
 function validateCameraID(cam) {
-    return Number.isInteger(cam) && cam >= 1 && cam <= 4;
+    return Number.isInteger(cam) && cam >= 1 && cam <= 3;
 }
 /* ==================================== */
 
@@ -493,7 +492,7 @@ async function safeFetch(url, opts = {}, timeout = 3000) {
 }
 
 // Camera Power States
-const cameraPowerStates = { 1: true, 2: true, 3: true, 4: true };
+const cameraPowerStates = { 1: true, 2: true, 3: true };
 
 // Toggle Camera Power
 async function toggleCameraPower(cam) {
@@ -799,23 +798,23 @@ async function snapshot(cam) {
 
     try {
         // Trigger capture on hardware
-        const res = await safeFetch(ip + "/capture", { method: 'POST' }, 8000);
+        const res = await safeFetch(ip + "/capture", { method: 'GET' }, 8000);
 
-        // For standard ESP32-CAM, /capture usually returns the JPG directly or a JSON status
-        // If it returns the JPG, we can save it to IndexedDB.
-        // Let's also try to get the current stream frame as a backup / improved experience
+        if (res && res.ok) {
+            const contentType = res.headers.get("content-type");
+            if (contentType && contentType.includes("image")) {
+                // If response is an image, update directly
+                const blob = await res.blob();
 
-        const streamImg = document.getElementById(`stream${cam}`);
-        if (streamImg && streamImg.src) {
-            // Fetch the current image from the stream URL
-            const blobRes = await fetch(ip + "/capture"); // Or /stream if simple
-            const blob = await blobRes.blob();
+                // Save to Local Database!
+                await saveSnapshotToLocal(cam, blob);
 
-            // Save to Local Database!
-            await saveSnapshotToLocal(cam, blob);
-
-            playSound();
-            console.log(`✅ Snapshot from Cam ${cam} saved to LOCAL VAULT`);
+                playSound();
+                // console.log(`✅ Snapshot from Cam ${cam} saved to LOCAL VAULT (optimized)`);
+            } else {
+                // Fallback: If it returns JSON or other status, maybe try fetching stream frame
+                // But for now we assume /capture returns image since we want to avoid double load
+            }
         }
 
         setTimeout(loadGallery, 500);
@@ -887,6 +886,17 @@ function initSidebarToggle() {
 
         // Save state
         localStorage.setItem('sidebarMinimized', isNowMinimized.toString());
+
+        // Resize 3D canvas if open
+        if (bpRenderer) {
+            setTimeout(() => {
+                const container = document.getElementById('blueprintCanvas');
+                const rect = container.getBoundingClientRect();
+                bpRenderer.setSize(rect.width, rect.height);
+                bpCamera.aspect = rect.width / rect.height;
+                bpCamera.updateProjectionMatrix();
+            }, 400); // Wait for transition
+        }
     });
 }
 
@@ -956,23 +966,61 @@ if (modal) {
 function initWebSocket() {
     if (ws) ws.close();
 
-    const wsUrl = `ws://${normalizeIP(MAIN_IP_RAW)}:81`;
-    console.log(`Connecting to WebSocket: ${wsUrl}`);
+    const wsUrl = `ws://${normalizeIP(MAIN_IP_RAW)}/ws`;
+    // console.log(`Connecting to WebSocket: ${wsUrl}`);
 
     ws = new WebSocket(wsUrl);
+    ws.binaryType = 'blob';
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
         try {
-            const data = JSON.parse(event.data);
-            if (data.event === "state_update") {
-                document.getElementById("tileSystem").innerText = data.armed ? "ARMED" : "DISARMED";
-                document.getElementById("tileAlert").innerText = data.log || "NONE";
-                document.getElementById("tileActivity").innerText = data.prox > 0 ? `OBJ @ ${data.prox}cm` : "CLEAR";
-                document.getElementById("sysStatus").innerText = data.armed ? "🔒 ARMED" : "🔓 DISARMED";
+            if (typeof event.data === 'string') {
+                const data = JSON.parse(event.data);
 
-                // If there's a fresh log entry in the websocket
-                if (data.log && data.log !== "KERNEL_BOOT") {
-                    loadLogs();
+                // Snapshot header message (metadata for the next binary frame)
+                if (data.event === 'snapshot_header') {
+                    pendingSnapshots.push({ snapshot_id: data.snapshot_id, camId: data.cam_id, ts: data.ts });
+                    // console.log('Snapshot header queued:', data.cam_id, data.snapshot_id);
+                    return;
+                }
+
+                if (data.event === "state_update") {
+                    document.getElementById("tileSystem").innerText = data.armed ? "ARMED" : "DISARMED";
+                    document.getElementById("tileAlert").innerText = data.log || "NONE";
+                    document.getElementById("tileActivity").innerText = data.prox > 0 ? `OBJ @ ${data.prox}cm` : "CLEAR";
+                    document.getElementById("sysStatus").innerText = data.armed ? "🔒 ARMED" : "🔓 DISARMED";
+
+                    // If there's a fresh log entry in the websocket
+                    if (data.log && data.log !== "KERNEL_BOOT") {
+                        loadLogs();
+                    }
+                }
+
+                if (data.event === 'alert' && data.type === 'ESP_NOW_HUMAN_TARGET') {
+                    // Update thermal state from alert data
+                    updateThermalState(data.cid, data.temp, true);
+
+                    // Keep existing alert handling for AI detection
+                    AIDetection.handleDetection && AIDetection.handleDetection(data);
+                }
+
+                // Handle periodic heartbeats for thermal monitoring
+                if (data.event === 'heartbeat') {
+                    updateThermalState(data.cid, data.temp, false);
+                }
+            } else {
+                // Binary frame (expected to be the JPEG blob for the most recent header)
+                const blob = event.data;
+                let header = pendingSnapshots.shift();
+                let camId = header ? header.camId : 1;
+                try {
+                    await saveSnapshotToLocal(camId, blob);
+                    // console.log(`Saved auto-snapshot from Cam ${camId} to IndexedDB`);
+                    playSound();
+                    // Refresh gallery to show the new image
+                    setTimeout(loadGallery, 200);
+                } catch (e) {
+                    console.error('Failed to save incoming snapshot:', e);
                 }
             }
         } catch (e) {
@@ -981,7 +1029,7 @@ function initWebSocket() {
     };
 
     ws.onopen = () => {
-        console.log("WebSocket connected");
+        // console.log("WebSocket connected");
         document.getElementById("sysStatus").innerText = "CONNECTED";
 
         // Update AI status to Active when connected
@@ -993,17 +1041,46 @@ function initWebSocket() {
     };
 
     ws.onclose = () => {
-        console.log("WebSocket closed. Retrying...");
-
-        // Update AI status to Offline when disconnected
-        const aiStatus = document.getElementById('aiStatus');
-        if (aiStatus) {
-            aiStatus.textContent = 'Offline';
-            aiStatus.style.color = 'var(--text-muted)';
-        }
-
+        // ... (existing code)
         setTimeout(initWebSocket, 5000);
     };
+}
+
+// THERMAL MANAGEMENT
+function updateThermalState(camId, temp, isProcessing) {
+    if (!camId || camId < 1 || camId > 3) return;
+
+    const camEl = document.querySelector(`.cams .cam:nth-child(${camId})`);
+    const badge = document.getElementById(`thermalBadge${camId}`);
+
+    if (!camEl || !badge) return;
+
+    // Reset classes
+    camEl.classList.remove('thermal-caution', 'thermal-critical', 'ai-processing');
+
+    // Thresholds
+    const CAUTION_TEMP = 55;
+    const CRITICAL_TEMP = 70;
+
+    if (temp >= CRITICAL_TEMP) {
+        camEl.classList.add('thermal-critical');
+        badge.innerText = `🔥 THERMAL OVERLOAD: ${temp.toFixed(1)}°C`;
+    } else if (temp >= CAUTION_TEMP) {
+        camEl.classList.add('thermal-caution');
+        badge.innerText = `⚠️ HIGH TEMP: ${temp.toFixed(1)}°C`;
+    }
+
+    if (isProcessing) {
+        camEl.classList.add('ai-processing');
+        if (temp < CAUTION_TEMP) {
+            badge.style.display = 'block';
+            badge.innerText = `🧠 AI PROCESSING... [${temp.toFixed(1)}°C]`;
+            badge.style.color = 'var(--accent)';
+            badge.style.borderColor = 'var(--accent)';
+        }
+    } else if (temp < CAUTION_TEMP) {
+        badge.style.display = 'none';
+    }
 }
 
 // Initialize
@@ -1036,7 +1113,7 @@ const AIDetection = {
 
     // Initialize AI detection system
     init() {
-        console.log('AI Detection System: Initialized');
+        // console.log('AI Detection System: Initialized');
         this.loadTodayStats();
         this.setupWebSocketListener();
         // Set initial status to Offline until WebSocket connects
@@ -1078,25 +1155,18 @@ const AIDetection = {
 
     // Setup WebSocket listener for AI alerts
     setupWebSocketListener() {
-        // Hook into existing WebSocket onmessage
-        const originalOnMessage = ws ? ws.onmessage : null;
-
-        if (ws) {
-            ws.onmessage = (event) => {
-                // Call original handler
-                if (originalOnMessage) originalOnMessage.call(ws, event);
-
-                // Process AI detection
-                try {
-                    const data = JSON.parse(event.data);
-                    if (data.event === 'alert' && data.type === 'HUMAN_TARGET') {
-                        this.handleDetection(data);
-                    }
-                } catch (e) {
-                    // Ignore parse errors
+        if (!ws) return;
+        ws.addEventListener('message', (event) => {
+            if (typeof event.data !== 'string') return; // ignore binary here
+            try {
+                const data = JSON.parse(event.data);
+                if (data.event === 'alert' && data.type === 'HUMAN_TARGET') {
+                    this.handleDetection(data);
                 }
-            };
-        }
+            } catch (e) {
+                // Ignore parse errors
+            }
+        });
     },
 
     // Handle new AI detection
@@ -1131,6 +1201,12 @@ const AIDetection = {
         // Update display
         this.updateStatsDisplay();
 
+        // New: Automatic Snapshot Trigger
+        if (data.auto_snap) {
+            // console.log(`📸 AI AUTO-SNAPSHOT: Triggering capture for Cam ${camId}`);
+            snapshot(camId);
+        }
+
         // Auto-hide after 5 seconds
         setTimeout(() => {
             this.hideDetectionBadge(camId);
@@ -1140,7 +1216,7 @@ const AIDetection = {
             }
         }, 5000);
 
-        console.log(`AI Detection: Camera ${camId} - Confidence: ${(confidence * 100).toFixed(1)}%`);
+        // console.log(`AI Detection: Camera ${camId} - Confidence: ${(confidence * 100).toFixed(1)}%`);
     },
 
     // Show detection badge on camera
@@ -1337,4 +1413,391 @@ setInterval(() => {
 // Expose to global scope for debugging
 window.AIDetection = AIDetection;
 
-console.log('AI Object Recognition Module: Loaded');
+// console.log('AI Object Recognition Module: Loaded');
+
+/* ====== BOOT SEQUENCE & CLOCK ====== */
+function startClock() {
+    const clock = document.getElementById('clock');
+    if (!clock) return;
+
+    function update() {
+        const now = new Date();
+        const h = String(now.getHours()).padStart(2, '0');
+        const m = String(now.getMinutes()).padStart(2, '0');
+        const s = String(now.getSeconds()).padStart(2, '0');
+        clock.innerText = `${h}:${m}:${s}`;
+    }
+    update();
+    setInterval(update, 1000);
+}
+
+function typeLine(text, element, speed = 30) {
+    return new Promise(resolve => {
+        let i = 0;
+        const line = document.createElement('div');
+        line.className = 'boot-text-line';
+        element.appendChild(line);
+
+        function type() {
+            if (i < text.length) {
+                line.style.borderRight = '10px solid var(--success)';
+                line.innerText += text.charAt(i);
+                i++;
+                setTimeout(type, speed);
+            } else {
+                line.style.borderRight = 'none';
+                resolve();
+            }
+        }
+        type();
+    });
+}
+
+function initBootSequence() {
+    // Only run if not skipped session-wise (optional, but good for UX)
+    // For now, always run to "cook" the teacher
+    const overlay = document.getElementById('bootOverlay');
+    const textContainer = document.getElementById('bootText');
+
+    if (!overlay || !textContainer) return;
+
+    const sequence = [
+        "Initializing Pyramid Kernel v4.2...",
+        "Loading Neural Modules... [OK]",
+        "Connecting to Satellite Uplink... [ESTABLISHED]",
+        "Decrypting Secure Vault... [SUCCESS]",
+        "ACCESS GRANTED"
+    ];
+
+    async function run() {
+        for (const line of sequence) {
+            await typeLine(line, textContainer, 20 + Math.random() * 30);
+            await new Promise(r => setTimeout(r, 100 + Math.random() * 300));
+        }
+
+        await new Promise(r => setTimeout(r, 500));
+        overlay.style.opacity = '0';
+        setTimeout(() => {
+            overlay.style.display = 'none';
+        }, 1000);
+    }
+
+    run();
+}
+
+/* ====== NETWORK GRAPH ====== */
+function initNetGraph() {
+    const canvas = document.getElementById('netGraph');
+    const valDisplay = document.getElementById('netValue');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const history = new Array(30).fill(0); // 30 data points
+    let maxLatency = 200; // default max scale
+
+    // Resize canvas for high DPI
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * 2;
+    canvas.height = rect.height * 2;
+    ctx.scale(2, 2);
+
+    function draw() {
+        ctx.clearRect(0, 0, rect.width, rect.height);
+
+        ctx.beginPath();
+        ctx.moveTo(0, rect.height - (history[0] / maxLatency) * rect.height);
+
+        for (let i = 1; i < history.length; i++) {
+            const x = (i / (history.length - 1)) * rect.width;
+            const y = rect.height - (history[i] / maxLatency) * rect.height;
+            ctx.lineTo(x, y);
+        }
+
+        ctx.strokeStyle = '#58a6ff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Fill area
+        ctx.lineTo(rect.width, rect.height);
+        ctx.lineTo(0, rect.height);
+        ctx.fillStyle = 'rgba(88, 166, 255, 0.1)';
+        ctx.fill();
+    }
+
+    async function ping() {
+        const start = performance.now();
+        try {
+            // Ping status endpoint
+            // If offline, this will throw or return late
+            await safeFetch(MAIN_IP + "/status", { method: 'HEAD' }, 1000);
+            const duration = Math.round(performance.now() - start);
+
+            valDisplay.innerText = `${duration} ms`;
+            history.push(duration);
+            history.shift();
+
+            // Dynamic scale
+            maxLatency = Math.max(200, ...history);
+        } catch (e) {
+            // Timeout or error (Offline)
+            valDisplay.innerText = "TIMEOUT";
+            valDisplay.style.color = "var(--danger)";
+            history.push(maxLatency); // Spike graph
+            history.shift();
+        }
+        draw();
+    }
+
+    // Ping every 2 seconds
+    setInterval(ping, 2000);
+    draw(); // Initial draw
+}
+
+
+/* ====== TACTICAL RADAR ====== */
+function initRadar() {
+    const canvas = document.getElementById('radarCanvas');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const width = 200; // Fixed size based on CSS
+    const height = 200;
+    canvas.width = width;
+    canvas.height = height;
+
+    const center = { x: width / 2, y: height / 2 };
+    const maxRadius = width / 2;
+
+    // Simulated blips
+    let blips = [];
+
+    function addBlip() {
+        if (Math.random() > 0.3) return; // Only sometimes add blip
+
+        const angle = Math.random() * Math.PI * 2;
+        const distance = Math.random() * (maxRadius - 10);
+
+        blips.push({
+            x: center.x + Math.cos(angle) * distance,
+            y: center.y + Math.sin(angle) * distance,
+            life: 1.0, // Opacity
+            size: 2 + Math.random() * 3
+        });
+    }
+
+    function render() {
+        ctx.clearRect(0, 0, width, height);
+
+        // Update and draw blips
+        for (let i = blips.length - 1; i >= 0; i--) {
+            const blip = blips[i];
+
+            ctx.beginPath();
+            ctx.arc(blip.x, blip.y, blip.size, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(88, 166, 255, ${blip.life})`;
+            ctx.fill();
+
+            // Pulse ring
+            ctx.beginPath();
+            ctx.arc(blip.x, blip.y, blip.size * (2 - blip.life), 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(88, 166, 255, ${blip.life * 0.5})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            blip.life -= 0.01;
+            if (blip.life <= 0) {
+                blips.splice(i, 1);
+            }
+        }
+
+        // Randomly add new blips synchronized roughly with scanner rotation
+        // We cheat a bit by just randomly adding them
+        if (Math.random() < 0.05) addBlip();
+
+        requestAnimationFrame(render);
+    }
+
+    render();
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    initBootSequence();
+    startClock();
+    initNetGraph();
+    initRadar();
+});
+
+
+/* ====== PREMIER 3D BLUEPRINT INSPECTOR ====== */
+let bpScene, bpCamera, bpRenderer, bpMesh, bpRequest;
+let isWireframe = true;
+let zoom = 1.0;
+let targetRotationX = 0.5, targetRotationY = 0.5;
+let rotationX = 0.5, rotationY = 0.5;
+
+function openBlueprint() {
+    const modal = document.getElementById('blueprintModal');
+    modal.classList.add('active');
+
+    // Give browser time to layout the modal before initializing Three.js
+    setTimeout(() => {
+        if (!bpRenderer) {
+            initBlueprint();
+        }
+        animateBlueprint();
+    }, 50);
+}
+
+function closeBlueprint() {
+    document.getElementById('blueprintModal').classList.remove('active');
+    cancelAnimationFrame(bpRequest);
+}
+
+function initBlueprint() {
+    const container = document.getElementById('blueprintCanvas');
+    const rect = container.getBoundingClientRect();
+
+    bpScene = new THREE.Scene();
+    bpScene.fog = new THREE.Fog(0x000105, 500, 2000);
+
+    bpCamera = new THREE.PerspectiveCamera(50, rect.width / rect.height, 1, 5000);
+    bpCamera.position.set(400, 400, 400);
+
+    bpRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    bpRenderer.setSize(rect.width, rect.height);
+    bpRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    bpRenderer.setClearColor(0x010208, 1); // Dark Navy instead of pure black
+    container.appendChild(bpRenderer.domElement);
+
+    // ADVANCED LIGHTING
+    const hemiLight = new THREE.HemisphereLight(0x58a6ff, 0x000000, 2.0); // Brighter
+    bpScene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    dirLight.position.set(1, 1, 1);
+    bpScene.add(dirLight);
+
+    // GRID & AXIS
+    const grid = new THREE.GridHelper(1000, 20, 0x58a6ff, 0x1a2332);
+    grid.position.y = -100;
+    grid.material.opacity = 0.3;
+    grid.material.transparent = true;
+    bpScene.add(grid);
+
+    // ADD TEST GEOMETRY (A Cube to prove renderer works)
+    const boxGeo = new THREE.BoxGeometry(20, 20, 20);
+    const boxMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+    const testBox = new THREE.Mesh(boxGeo, boxMat);
+    testBox.position.set(0, 150, 0);
+    bpScene.add(testBox);
+
+    // LOAD STL
+    const loader = new THREE.STLLoader();
+    // Using relative path for the dashboard server
+    loader.load('./destiny_pyramid_ship.stl', function (geometry) {
+        console.log("3D Blueprint: Model Load SUCCESS");
+        // Center Geometry
+        geometry.center();
+
+        const material = new THREE.MeshPhongMaterial({
+            color: 0x58a6ff,
+            emissive: 0x112244,
+            specular: 0x58a6ff,
+            shininess: 50,
+            wireframe: isWireframe,
+            transparent: true,
+            opacity: 0.7,
+            side: THREE.DoubleSide
+        });
+
+        bpMesh = new THREE.Mesh(geometry, material);
+        bpScene.add(bpMesh);
+
+        // EDGE GLOW EFFECT
+        const edges = new THREE.EdgesGeometry(geometry);
+        const edgeLines = new THREE.LineSegments(
+            edges,
+            new THREE.LineBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0.8 })
+        );
+        bpMesh.add(edgeLines);
+
+        // SMART AUTO-CAMERA
+        geometry.computeBoundingSphere();
+        const radius = geometry.boundingSphere.radius;
+        bpCamera.position.z = radius * 3;
+        bpCamera.updateProjectionMatrix();
+    });
+
+    // SMOOTH ORBIT CONTROLS (Custom Implementation)
+    let isMouseDown = false, mouseX = 0, mouseY = 0;
+
+    container.addEventListener('mousedown', (e) => {
+        isMouseDown = true;
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+    });
+
+    window.addEventListener('mouseup', () => { isMouseDown = false; });
+
+    container.addEventListener('mousemove', (e) => {
+        if (!isMouseDown) return;
+        const dx = e.clientX - mouseX;
+        const dy = e.clientY - mouseY;
+        targetRotationY += dx * 0.005;
+        targetRotationX += dy * 0.005;
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+    });
+
+    container.addEventListener('wheel', (e) => {
+        zoom += e.deltaY * 0.001;
+        zoom = Math.max(0.5, Math.min(3, zoom));
+        e.preventDefault();
+    }, { passive: false });
+
+    // Internal loop to smooth movement
+    window.animateBlueprint = function () {
+        bpRequest = requestAnimationFrame(animateBlueprint);
+
+        if (bpMesh) {
+            rotationX += (targetRotationX - rotationX) * 0.1;
+            rotationY += (targetRotationY - rotationY) * 0.1;
+            bpMesh.rotation.x = rotationX;
+            bpMesh.rotation.y = rotationY;
+            bpMesh.scale.set(1 / zoom, 1 / zoom, 1 / zoom);
+        }
+
+        // Rotate the test box to show life
+        testBox.rotation.y += 0.02;
+
+        bpRenderer.render(bpScene, bpCamera);
+    };
+}
+
+function toggleWireframe() {
+    isWireframe = !isWireframe;
+    if (bpMesh) {
+        bpMesh.material.wireframe = isWireframe;
+        bpMesh.material.opacity = isWireframe ? 0.7 : 1.0;
+    }
+}
+
+function resetView() {
+    if (bpMesh) {
+        bpMesh.rotation.set(0, 0, 0);
+        // Reset the internal target variables too
+        targetRotationX = 0; targetRotationY = 0;
+        rotationX = 0; rotationY = 0;
+        zoom = 1.0;
+    }
+}
+
+function exportSTL() {
+    // Basic download trigger for the existing file
+    const link = document.createElement('a');
+    link.href = 'destiny_pyramid_ship.stl';
+    link.download = 'destiny_pyramid_ship.stl';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}

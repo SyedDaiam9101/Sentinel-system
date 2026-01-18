@@ -4,11 +4,20 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>🏔️ Pyramid Surveillance Pro</title>
+    <title>🏔️ Pyramid Sentinel Pro</title>
     <link rel="stylesheet" href="pyramid.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
 </head>
 
 <body>
+    <!-- BOOT SEQUENCE OVERLAY -->
+    <div id="bootOverlay" class="boot-overlay">
+        <div class="boot-terminal">
+            <div id="bootText"></div>
+            <div class="cursor">_</div>
+        </div>
+    </div>
     <!-- SETUP SIDEBAR -->
     <div class="setup-modal" id="setupModal">
         <div class="setup-box">
@@ -166,7 +175,7 @@
                 <div class="logo-icon">🏔️</div>
                 <div>
                     <div class="brand">PYRAMID</div>
-                    <div class="muted">Surveillance Pro</div>
+                    <div class="muted">Sentinel Pro</div>
                 </div>
             </div>
 
@@ -175,6 +184,7 @@
                 <a href="#live">📹 <span>Live Streams</span></a>
                 <a href="#gallery">🖼️ <span>Gallery</span></a>
                 <a href="#logs">📋 <span>Event Logs</span></a>
+                <a href="javascript:void(0)" onclick="openBlueprint()">🏗️ <span>3D Blueprint</span></a>
             </nav>
 
             <div class="section-title">System Control</div>
@@ -187,15 +197,36 @@
             <button class="btn" id="refreshAll" style="width: 100%; margin-bottom: 8px;">🔄 <span>Refresh
                     All</span></button>
             <button class="btn" id="btnDownloadLog" style="width: 100%;">💾 <span>Download Logs</span></button>
+
+            <!-- NETWORK GRAPH -->
+            <div class="net-monitor">
+                <div class="net-header">
+                    <span>LATENCY</span>
+                    <span id="netValue">-- ms</span>
+                </div>
+                <canvas id="netGraph"></canvas>
+            </div>
+
+            <!-- MECHANICAL VENTS (Decorative) -->
+            <div class="vent-array">
+                <div class="vent-slat"></div>
+                <div class="vent-slat"></div>
+                <div class="vent-slat"></div>
+            </div>
+            <div class="sensor-blueprint">
+                <div class="blueprint-tag">MODEL: V5.0-TITANIUM</div>
+                <div class="blueprint-tag">CORE: ESP32-WROOM</div>
+            </div>
         </aside>
 
         <!-- MAIN CONTENT -->
         <main class="content">
             <header>
                 <div>
-                    <h1>Pyramid Surveillance Dashboard</h1>
+                    <h1>Pyramid Sentinel dashboard</h1>
                     <div class="muted">Network: PyramidNet (192.168.4.x)</div>
                 </div>
+                <div id="clock" class="digital-clock">00:00:00</div>
                 <div class="status-badge">
                     <div class="status-dot"></div>
                     <span id="sysStatus">Loading...</span>
@@ -205,18 +236,30 @@
             <!-- TILES -->
             <section class="tiles">
                 <div class="tile">
-                    <div class="label">System Status</div>
+                    <div class="corner top-left"></div>
+                    <div class="corner top-right"></div>
+                    <div class="corner bottom-left"></div>
+                    <div class="corner bottom-right"></div>
+                    <div class="label">System Armor</div>
                     <div class="val" id="tileSystem">—</div>
                     <div class="sub">Current state</div>
                 </div>
 
                 <div class="tile">
-                    <div class="label">Last Alert</div>
+                    <div class="corner top-left"></div>
+                    <div class="corner top-right"></div>
+                    <div class="corner bottom-left"></div>
+                    <div class="corner bottom-right"></div>
+                    <div class="label">Last Event</div>
                     <div class="val" id="tileAlert">—</div>
                     <div class="sub">Recent activity</div>
                 </div>
 
                 <div class="tile">
+                    <div class="corner top-left"></div>
+                    <div class="corner top-right"></div>
+                    <div class="corner bottom-left"></div>
+                    <div class="corner bottom-right"></div>
                     <div class="label">Active Camera</div>
                     <div class="val" id="tileActivity">—</div>
                     <div class="sub">Currently monitoring</div>
@@ -263,8 +306,13 @@
                     <div class="cams">
                         <!-- Camera 1 -->
                         <div class="cam">
+                            <div class="corner top-left"></div>
+                            <div class="corner top-right"></div>
+                            <div class="corner bottom-left"></div>
+                            <div class="corner bottom-right"></div>
                             <h3>Sector 1 — NORTH</h3>
                             <div class="cam-frame" id="camFrame1">
+                                <div class="thermal-badge" id="thermalBadge1">Thermal Caution: High Load</div>
                                 <div class="placeholder">
                                     <div>📷</div>
                                     <div>Click "Load Stream" to connect</div>
@@ -290,8 +338,13 @@
 
                         <!-- Camera 2 -->
                         <div class="cam">
+                            <div class="corner top-left"></div>
+                            <div class="corner top-right"></div>
+                            <div class="corner bottom-left"></div>
+                            <div class="corner bottom-right"></div>
                             <h3>Sector 2 — EAST</h3>
                             <div class="cam-frame" id="camFrame2">
+                                <div class="thermal-badge" id="thermalBadge2">Thermal Caution: High Load</div>
                                 <div class="placeholder">
                                     <div>📷</div>
                                     <div>Click "Load Stream" to connect</div>
@@ -317,8 +370,13 @@
 
                         <!-- Camera 3 -->
                         <div class="cam">
+                            <div class="corner top-left"></div>
+                            <div class="corner top-right"></div>
+                            <div class="corner bottom-left"></div>
+                            <div class="corner bottom-right"></div>
                             <h3>Sector 3 — SOUTH</h3>
                             <div class="cam-frame" id="camFrame3">
+                                <div class="thermal-badge" id="thermalBadge3">Thermal Caution: High Load</div>
                                 <div class="placeholder">
                                     <div>📷</div>
                                     <div>Click "Load Stream" to connect</div>
@@ -340,32 +398,26 @@
                                 <button class="btn" onclick="openFull('http://192.168.4.4:80/stream')">⛶ Full</button>
                                 <button class="btn" onclick="snapshot(3)">📸 Snap</button>
                             </div>
+                            <div class="sensor-blueprint">
+                                <span class="blueprint-tag">SENSOR: OV2640</span>
+                                <span class="blueprint-tag">PORT: 80/STREAM</span>
+                            </div>
                         </div>
 
-                        <!-- Camera 4 -->
-                        <div class="cam">
-                            <h3>Sector 4 — WEST</h3>
-                            <div class="cam-frame" id="camFrame4">
-                                <div class="placeholder">
-                                    <div>📷</div>
-                                    <div>Click "Load Stream" to connect</div>
-                                </div>
-                                <iframe src="" data-src="http://192.168.4.5:80/stream" id="stream4"></iframe>
-                                <canvas class="ai-overlay" id="aiOverlay4"></canvas>
-                                <div class="ai-detection-badge" id="aiDetection4" style="display: none;">
-                                    <span class="ai-badge-icon">🎯</span>
-                                    <span class="ai-badge-text">HUMAN DETECTED</span>
-                                </div>
-                                <div class="cam-status">
-                                    <div class="loading"></div> LIVE
-                                </div>
+                        <!-- TACTICAL RADAR (Replaces Cam 4) -->
+                        <div class="cam radar-slot">
+                            <h3>PERIMETER RADAR</h3>
+                            <div class="radar-container">
+                                <canvas id="radarCanvas"></canvas>
+                                <div class="radar-scan"></div>
+                                <div class="radar-grid"></div>
                             </div>
-                            <div class="cam-actions">
-                                <button class="btn btn-power on" id="powerBtn4" onclick="toggleCameraPower(4)">⚡
-                                    ON</button>
-                                <button class="btn" onclick="loadStream(4)">▶ Load</button>
-                                <button class="btn" onclick="openFull('http://192.168.4.5:80/stream')">⛶ Full</button>
-                                <button class="btn" onclick="snapshot(4)">📸 Snap</button>
+                            <div class="cam-status" style="margin-top: 15px;">
+                                <div class="loading live"></div> SCANNING ACTIVE
+                            </div>
+                            <div class="vent-array" style="margin-top: 15px;">
+                                <div class="vent-slat"></div>
+                                <div class="vent-slat"></div>
                             </div>
                         </div>
                     </div>
@@ -395,6 +447,20 @@
         <div class="modal-box">
             <button class="close-btn" onclick="closeFull()">✕ CLOSE</button>
             <iframe id="modalFrame" src=""></iframe>
+        </div>
+    </div>
+
+    <!-- 3D BLUEPRINT MODAL -->
+    <div class="blueprint-modal" id="blueprintModal">
+        <div class="blueprint-container">
+            <div class="blueprint-title">Tactical Housing Inspect // v5.0.0-TITANIUM</div>
+            <button class="close-btn" onclick="closeBlueprint()">✕ CLOSE PROJECT</button>
+            <div id="blueprintCanvas"></div>
+            <div class="blueprint-controls">
+                <button class="btn" onclick="toggleWireframe()">Toggle Wireframe</button>
+                <button class="btn" onclick="resetView()">Reset Camera</button>
+                <button class="btn btn-primary" onclick="exportSTL()">💾 EXPORT .STL</button>
+            </div>
         </div>
     </div>
 

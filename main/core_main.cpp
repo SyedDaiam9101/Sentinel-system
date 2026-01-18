@@ -1,9 +1,4 @@
-/**
- * 🏔️ PYRAMID SENTINEL PRO - NEURO CORE [TITANIUM]
- * Version: 5.0.0 "GOD-TIER COMMAND KERNEL"
- * 
- * Hardware: ESP32 Dev Board (30-pin)
- * Controller: Antigravity AI Ultra-Dense Kernel
+/*
  * -----------------------------------------------------------
  * PHYSICAL MAPPING (STRICT USER REFERENCE):
  * - 32: Ultrasonic TRIG
@@ -13,19 +8,20 @@
  * - 27: Green LED (Touch)
  * - 23: TFT MOSI
  * - 19: TFT MISO
- * - 18: TFT SCK + Buzzer
+ * - 18: TFT SCK
  * - 15: TFT CS
  * - 2 : TFT DC
  * - 4 : TFT RST + Button RESET
  * - 14: Master ARM Button
  * - 16: PIR 1
  * - 17: PIR 2
+ * - 13: Buzzer
  * -----------------------------------------------------------
  */
 
 #include <WiFi.h>
+#include <esp_now.h>
 #include <ESPAsyncWebServer.h>
-#include <WebSocketsServer.h>
 #include <ArduinoJson.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
@@ -64,7 +60,7 @@ const char* AP_PASS = "pointbreak";
 
 // --- GLOBAL OBJECTS ---
 AsyncWebServer server(80);
-WebSocketsServer webSocket = WebSocketsServer(81);
+AsyncWebSocket ws("/ws");
 Adafruit_ILI9341 tft = Adafruit_ILI9341(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST);
 SemaphoreHandle_t stateMutex;
 
@@ -76,8 +72,8 @@ struct NeuroState {
     float proximity = 0.0;
     String lastEvent = "KERNEL_BOOT";
     uint32_t alertsReceived = 0;
-    uint32_t camHeartbeats[5] = {0,0,0,0,0};
-    uint32_t lastAlertTime[5] = {0,0,0,0,0}; // Tracks time of last alert per sector
+    uint32_t camHeartbeats[4] = {0,0,0,0};
+    uint32_t lastAlertTime[4] = {0,0,0,0}; // Tracks time of last alert per sector
     bool multiSectorBreach = false;          // Escalation flag
     size_t minHeap = 0;
     bool storageReady = false;
@@ -99,6 +95,52 @@ void playLocked() {
 void playUnlocked() {
     pulseBuzzer(1600, 100); delay(50);
     pulseBuzzer(1200, 150);
+}
+
+// ==========================================================
+// � ESP-NOW PROTOCOL (ULTRA-LOW LATENCY)
+// ==========================================================
+typedef struct {
+    int id;
+    int type; // 0=HEARTBEAT, 1=ALERT
+    float temp;
+    uint32_t heap;
+} esp_now_data_t;
+
+void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+    esp_now_data_t data;
+    memcpy(&data, incomingData, sizeof(data));
+    
+    int cid = data.id;
+    if (cid >= 1 && cid <= 3) {
+        sys.camHeartbeats[cid] = millis();
+        
+        if (data.type == 1) { // ALERT
+            sys.lastAlertTime[cid] = millis();
+            sys.lastEvent = "ESP_NOW_ALERT_SECTOR_" + String(cid);
+            Serial.println("[SENTINEL] " + sys.lastEvent);
+            
+            // Forward to WebSocket Dashboard
+            StaticJsonDocument<256> doc;
+            doc["event"] = "alert";
+            doc["type"]  = "ESP_NOW_HUMAN_TARGET";
+            doc["cid"]   = cid;
+            doc["temp"]  = data.temp;
+            String out;
+            serializeJson(doc, out);
+            ws.textAll(out);
+        } else if (data.type == 0) { // HEARTBEAT
+            // Forward heartbeat temperature to dashboard
+            StaticJsonDocument<256> doc;
+            doc["event"] = "heartbeat";
+            doc["cid"]   = cid;
+            doc["temp"]  = data.temp;
+            String out;
+            serializeJson(doc, out);
+            ws.textAll(out);
+        }
+    }
+
 }
 
 // ==========================================================
@@ -185,7 +227,7 @@ void drawHeader(const char* txt) {
 void renderDashboard() {
     // 0. Connectivity Check
     int activeCams = 0;
-    for(int i=1; i<=4; i++) if(millis() - sys.camHeartbeats[i] < 10000) activeCams++;
+    for(int i=1; i<=3; i++) if(millis() - sys.camHeartbeats[i] < 10000) activeCams++;
     bool isOffline = (activeCams == 0 && sys.proximity == 0.0);
 
     // 1. Grid Background (Subtle)
@@ -259,11 +301,11 @@ void renderDashboard() {
     // 6. UPLINKS
     // (activeCams already calculated at top)
     
-    for(int i=0; i<4; i++) {
+    for(int i=0; i<3; i++) {
         bool active = (millis() - sys.camHeartbeats[i+1] < 10000);
-        tft.fillRect(15 + (i * 75), 150, 70, 20, active ? 0x0421 : 0x2000);
-        tft.drawRect(15 + (i * 75), 150, 70, 20, active ? ILI9341_GREEN : 0x4000);
-        tft.setCursor(20 + (i * 75), 156);
+        tft.fillRect(15 + (i * 105), 150, 100, 20, active ? 0x0421 : 0x2000); // Widened since 3 cams
+        tft.drawRect(15 + (i * 105), 150, 100, 20, active ? ILI9341_GREEN : 0x4000);
+        tft.setCursor(20 + (i * 105), 156);
         tft.setTextColor(active ? ILI9341_WHITE : 0x7BEF);
         tft.printf("CAM %d: %s", i+1, active ? "ON" : "OFF");
     }
@@ -293,7 +335,7 @@ void broadcastState() {
     
     char buffer[512];
     serializeJson(doc, buffer);
-    webSocket.broadcastTXT(buffer);
+    ws.textAll(buffer);
 }
 
 void IntelligenceTask(void * p) {
@@ -323,10 +365,12 @@ void IntelligenceTask(void * p) {
             // THREAT DECAY
             if(sys.threatLevel > 100) sys.threatLevel = 100;
             if(sys.threatLevel > 0) sys.threatLevel--;
+            
+            sys.minHeap = ESP.getFreeHeap();
 
             // --- MULTI-SECTOR THREAT FUSION ENGINE ---
             int recentActiveAlerts = 0;
-            for(int i=1; i<=4; i++) {
+            for(int i=1; i<=3; i++) {
                 if(millis() - sys.lastAlertTime[i] < 10000) recentActiveAlerts++;
             }
             if(recentActiveAlerts >= 2 && sys.armed) {
@@ -362,30 +406,33 @@ void IntelligenceTask(void * p) {
 // 📡 COMMAND KERNEL & NETWORK
 // ==========================================================
 
-void onWsEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-    if(type == WStype_TEXT) {
-        StaticJsonDocument<512> doc;
-        deserializeJson(doc, payload);
-        
-        if(doc.containsKey("command")) {
-            String c = doc["command"];
-            if(c == "ARM") { sys.armed = true; playLocked(); addLog("REMOTE_LOCK"); }
-            if(c == "DISARM") { sys.armed = false; playUnlocked(); addLog("REMOTE_UNLOCK"); }
-        }
-        
-        if(doc.containsKey("event") && doc["event"] == "alert") {
-            int cid = doc["cam_id"] | 0;
-            String type = doc["type"] | "MOTION";
-            String sector = doc["sector"] | "UNKNOWN";
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    if(type == WS_EVT_DATA) {
+        AwsFrameInfo *info = (AwsFrameInfo*)arg;
+        if(info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+            StaticJsonDocument<512> doc;
+            deserializeJson(doc, data);
             
-            sys.threatLevel += 20;
-            if (cid >= 1 && cid <= 4) {
-                sys.camHeartbeats[cid] = millis();
-                sys.lastAlertTime[cid] = millis();
+            if(doc.containsKey("command")) {
+                String c = doc["command"];
+                if(c == "ARM") { sys.armed = true; playLocked(); addLog("REMOTE_LOCK"); }
+                if(c == "DISARM") { sys.armed = false; playUnlocked(); addLog("REMOTE_UNLOCK"); }
             }
             
-            addLog("[SEC_" + sector + "] - " + type + " | LVL: " + String(sys.threatLevel));
-            pulseBuzzer(3000, 100);
+            if(doc.containsKey("event") && doc["event"] == "alert") {
+                int cid = doc["cam_id"] | 0;
+                String type = doc["type"] | "MOTION";
+                String sector = doc["sector"] | "UNKNOWN";
+                
+                sys.threatLevel += 20;
+                if (cid >= 1 && cid <= 3) {
+                    sys.camHeartbeats[cid] = millis();
+                    sys.lastAlertTime[cid] = millis();
+                }
+                
+                addLog("[SEC_" + sector + "] - " + type + " | LVL: " + String(sys.threatLevel));
+                pulseBuzzer(3000, 100);
+            }
         }
     }
 }
@@ -413,17 +460,7 @@ void setup() {
     tft.fillScreen(ILI9341_BLACK);
     drawHeader("NEURO-CORE ONLINE");
 
-    int recentActiveAlerts = 0;
-    for(int i=0; i<4; i++) {
-        if(millis() - sys.lastAlertTime[i] < 10000) recentActiveAlerts++;
-    }
-    if(recentActiveAlerts >= 2 && sys.armed) {
-        if(!sys.multiSectorBreach) addLog("MULTI_SECTOR_BREACH_DETECTED");
-        sys.multiSectorBreach = true;
-        sys.threatLevel = 100; 
-    } else {
-        sys.multiSectorBreach = false;
-    } 
+    // (Removed redundant multi-sector breach detection already in Intel Task)
     
     // STORAGE
     if(FFat.begin(true)) sys.storageReady = true;
@@ -440,11 +477,22 @@ void setup() {
         addLog("AP_STATIC_IP_FAILED");
     }
     
-    WiFi.softAP(AP_SSID, AP_PASS);
+    // Start AP with explicit configuration
+    WiFi.softAP(AP_SSID, AP_PASS, 1, 0, 4); // Channel 1, not hidden, max 4 clients
     
     addLog("IP_ADDRESS: " + WiFi.softAPIP().toString());
+    addLog("MAC_ADDRESS: " + WiFi.softAPmacAddress());
+    addLog("DHCP_RANGE: 192.168.4.2 - 192.168.4.5");
     MDNS.begin("pyramid-neurocore");
     ArduinoOTA.begin();
+
+    // --- ESP-NOW SUBSYSTEM ---
+    if (esp_now_init() != ESP_OK) {
+        addLog("ESP_NOW_INIT_FAILED");
+    } else {
+        esp_now_register_recv_cb(OnDataRecv);
+        addLog("ESP_NOW_READY");
+    }
 
     // SERVER
     server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -485,8 +533,8 @@ void setup() {
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "*");
     
-    webSocket.begin();
-    webSocket.onEvent(onWsEvent);
+    ws.onEvent(onWsEvent);
+    server.addHandler(&ws);
     server.begin();
 
     // DUAL-CORE LAUNCH
@@ -495,7 +543,7 @@ void setup() {
     
     // UI Task on Core 1
     xTaskCreatePinnedToCore([](void*p){ while(1){
-        webSocket.loop();
+        ws.cleanupClients();
         ArduinoOTA.handle();
         
         if(digitalRead(PIN_BTN_ARM) == LOW) {

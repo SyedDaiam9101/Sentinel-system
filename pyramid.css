@@ -16,6 +16,10 @@
     --danger-glow: rgba(248, 81, 73, 0.3);
     --purple: #764ba2;
     --purple-glow: rgba(118, 75, 162, 0.3);
+    --hud-corner: #58a6ff;
+    --scanline: rgba(255, 255, 255, 0.05);
+    --vent-bg: rgba(0, 0, 0, 0.4);
+    --vent-slat: rgba(88, 166, 255, 0.1);
 }
 
 * {
@@ -82,6 +86,82 @@ body::after {
     will-change: auto;
 }
 
+/* Animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse-red {
+    0% {
+        box-shadow: 0 0 0 0 rgba(248, 81, 73, 0.7);
+    }
+
+    70% {
+        box-shadow: 0 0 0 10px rgba(248, 81, 73, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(248, 81, 73, 0);
+    }
+}
+
+@keyframes pulse-green {
+    0% {
+        box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.7);
+    }
+
+    70% {
+        box-shadow: 0 0 0 10px rgba(63, 185, 80, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(63, 185, 80, 0);
+    }
+}
+
+/* Staggered Animation for Tiles */
+.tile {
+    animation: fadeInUp 0.5s ease-out backwards;
+}
+
+.tile:nth-child(1) {
+    animation-delay: 0.1s;
+}
+
+.tile:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.tile:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+/* Enhanced Glassmorphism for Sidebar */
+.sidebar {
+    background: rgba(18, 24, 36, 0.75);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Enhanced Glassmorphism for Modal */
+.modal-box,
+.setup-box {
+    background: rgba(26, 35, 50, 0.85);
+    backdrop-filter: blur(25px) saturate(200%);
+    -webkit-backdrop-filter: blur(25px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
 .app {
     display: flex;
     height: 100vh;
@@ -92,14 +172,10 @@ body::after {
 /* SIDEBAR - Optimized */
 .sidebar {
     width: 280px;
-    background: linear-gradient(180deg,
-            rgba(18, 24, 36, 0.95) 0%,
-            rgba(10, 14, 23, 0.98) 100%);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    /* Background and filter handled above */
     padding: 32px 24px;
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
-    border-right: 1px solid var(--border);
+    /* border handled above */
     position: relative;
     z-index: 10;
     overflow-y: auto;
@@ -657,58 +733,75 @@ header h1:hover {
 }
 
 .tile {
-    background: linear-gradient(135deg,
-            rgba(26, 35, 50, 0.8) 0%,
-            rgba(18, 24, 36, 0.8) 100%);
+    background: rgba(18, 24, 36, 0.4);
+    backdrop-filter: blur(15px);
     padding: 28px;
-    border-radius: 20px;
+    border-radius: 16px;
     border: 1px solid var(--border);
     position: relative;
-    overflow: hidden;
-    transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+    overflow: visible;
+    /* Show corners */
+    transition: all 0.3s ease;
     will-change: transform;
-    contain: layout style paint;
 }
 
-.tile::before {
-    content: '';
+/* CORNER DECORATIONS */
+.corner {
     position: absolute;
-    top: -50%;
-    right: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
-    border-radius: 50%;
-    transform: translate(30%, -30%);
-    opacity: 0;
-    transition: opacity 0.5s ease, transform 0.5s ease;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--accent);
+    opacity: 0.3;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    z-index: 10;
+    pointer-events: none;
 }
 
-.tile::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(135deg,
-            rgba(88, 166, 255, 0.05) 0%,
-            rgba(118, 75, 162, 0.05) 100%);
-    opacity: 0;
-    transition: opacity 0.5s ease;
-    border-radius: 20px;
+.top-left {
+    top: -2px;
+    left: -2px;
+    border-right: 0;
+    border-bottom: 0;
+    border-radius: 4px 0 0 0;
+}
+
+.top-right {
+    top: -2px;
+    right: -2px;
+    border-left: 0;
+    border-bottom: 0;
+    border-radius: 0 4px 0 0;
+}
+
+.bottom-left {
+    bottom: -2px;
+    left: -2px;
+    border-right: 0;
+    border-top: 0;
+    border-radius: 0 0 0 4px;
+}
+
+.bottom-right {
+    bottom: -2px;
+    right: -2px;
+    border-left: 0;
+    border-top: 0;
+    border-radius: 0 0 4px 0;
+}
+
+.tile:hover .corner,
+.cam:hover .corner {
+    opacity: 1;
+    width: 30px;
+    height: 30px;
+    filter: drop-shadow(0 0 8px var(--accent));
 }
 
 .tile:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 30px rgba(88, 166, 255, 0.2);
+    transform: translateY(-5px) scale(1.02);
     border-color: var(--accent);
-}
-
-.tile:hover::before {
-    opacity: 1;
-    transform: translate(20%, -20%) scale(1.2);
-}
-
-.tile:hover::after {
-    opacity: 1;
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4), 0 0 20px rgba(88, 166, 255, 0.1);
+    background: rgba(26, 35, 50, 0.6);
 }
 
 .tile .label {
@@ -791,18 +884,59 @@ header h1:hover {
 }
 
 .cam {
-    background: linear-gradient(135deg,
-            rgba(26, 35, 50, 0.8),
-            rgba(18, 24, 36, 0.8));
-    border-radius: 20px;
-    padding: 20px;
-    border: 1px solid var(--border);
-    transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
-    position: relative;
-    overflow: hidden;
     will-change: transform;
     contain: layout style paint;
+    padding: 24px;
+    border-radius: 20px;
+    background: rgba(18, 24, 36, 0.6);
+    backdrop-filter: blur(10px);
 }
+
+/* AI Detection Badge - New Premium Style */
+.ai-detection-badge {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(220, 38, 38, 0.9);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 50px;
+    font-weight: 800;
+    font-size: 12px;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
+    backdrop-filter: blur(4px);
+    z-index: 10;
+    animation: pulse-red 2s infinite;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    text-transform: uppercase;
+}
+
+.ai-badge-icon {
+    font-size: 14px;
+}
+
+/* Pulsing Status Dot */
+.status-dot {
+    animation: pulse-green 2s infinite;
+}
+
+/* Loading Live Indicator */
+.loading.live {
+    background: var(--success);
+    box-shadow: 0 0 10px var(--success-glow);
+    animation: pulse-green 1.5s infinite;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    border: none;
+}
+
+
 
 .cam::before {
     content: '';
@@ -854,12 +988,81 @@ header h1:hover {
         0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
+/* SCANLINE FX */
+.cam-frame::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(transparent 50%,
+            rgba(0, 0, 0, 0.1) 50%);
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0.4;
+}
+
+.cam-frame::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(to bottom,
+            transparent 0%,
+            rgba(88, 166, 255, 0.05) 50%,
+            transparent 100%);
+    animation: scan 3s linear infinite, glitch 10s step-end infinite;
+    pointer-events: none;
+    z-index: 6;
+}
+
+@keyframes glitch {
+
+    0%,
+    90%,
+    100% {
+        opacity: 1;
+        transform: translateX(0);
+    }
+
+    92% {
+        opacity: 0.8;
+        transform: translateX(2px);
+    }
+
+    94% {
+        opacity: 1;
+        transform: translateX(-2px);
+    }
+
+    96% {
+        opacity: 0.5;
+        transform: scale(1.05);
+    }
+}
+
+@keyframes scan {
+    from {
+        transform: translateY(-100%);
+    }
+
+    to {
+        transform: translateY(100%);
+    }
+}
+
 .cam:hover .cam-frame {
     border-color: var(--accent);
     box-shadow:
-        inset 0 2px 10px rgba(0, 0, 0, 0.5),
+        inset 0 0 20px rgba(88, 166, 255, 0.2),
         0 4px 20px rgba(88, 166, 255, 0.3),
-        0 0 40px rgba(88, 166, 255, 0.2);
+        0 0 50px rgba(88, 166, 255, 0.15);
+}
+
+.cam:hover h3 {
+    color: white;
+    text-shadow: 0 0 10px var(--accent-glow);
 }
 
 .cam-frame iframe {
@@ -1148,6 +1351,93 @@ header h1:hover {
 
     100% {
         transform: rotate(360deg);
+    }
+}
+
+/* THERMAL HEAT MODE STYLES */
+.cam.thermal-caution {
+    border-color: var(--warning) !important;
+}
+
+.cam.thermal-caution .corner {
+    border-color: var(--warning) !important;
+    opacity: 0.8;
+}
+
+.cam.thermal-caution .cam-frame {
+    box-shadow: inset 0 0 30px rgba(210, 153, 34, 0.2);
+}
+
+.cam.thermal-critical {
+    border-color: var(--danger) !important;
+    animation: critical-pulse 1s infinite alternate;
+}
+
+.cam.thermal-critical .corner {
+    border-color: var(--danger) !important;
+    opacity: 1;
+}
+
+.cam.thermal-critical .cam-frame {
+    box-shadow: inset 0 0 50px rgba(248, 81, 73, 0.4);
+}
+
+.cam.ai-processing .cam-frame::before {
+    background: linear-gradient(to bottom,
+            transparent 0%,
+            rgba(255, 165, 0, 0.1) 50%,
+            transparent 100%);
+    animation: scan 1.5s linear infinite, glitch 2s step-end infinite;
+}
+
+@keyframes critical-pulse {
+    from {
+        box-shadow: 0 0 10px rgba(248, 81, 73, 0.2);
+    }
+
+    to {
+        box-shadow: 0 0 40px rgba(248, 81, 73, 0.5);
+    }
+}
+
+.thermal-badge {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    color: var(--warning);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 800;
+    border: 1px solid var(--warning);
+    display: none;
+    z-index: 10;
+    text-transform: uppercase;
+}
+
+.cam.thermal-caution .thermal-badge {
+    display: block;
+    color: var(--warning);
+    border-color: var(--warning);
+}
+
+.cam.thermal-critical .thermal-badge {
+    display: block;
+    color: var(--danger);
+    border-color: var(--danger);
+    animation: flash 1s infinite;
+}
+
+@keyframes flash {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
     }
 }
 
@@ -1858,4 +2148,288 @@ header h1:hover {
     .ai-badge-text {
         font-size: 10px;
     }
+}
+
+/* BOOT SEQUENCE OVERLAY */
+.boot-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    z-index: 2147483647;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Courier New', Courier, monospace;
+    opacity: 1;
+    transition: opacity 1s ease-out;
+}
+
+.boot-terminal {
+    color: var(--success);
+    font-size: 16px;
+    width: 600px;
+    max-width: 90%;
+}
+
+.boot-text-line {
+    margin-bottom: 5px;
+    text-shadow: 0 0 5px var(--success-glow);
+}
+
+.cursor {
+    display: inline-block;
+    width: 10px;
+    background: var(--success);
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0;
+    }
+}
+
+/* DIGITAL CLOCK */
+.digital-clock {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text);
+    text-shadow: 0 0 10px var(--accent-glow);
+    padding: 0 20px;
+    letter-spacing: 2px;
+}
+
+/* NETWORK MONITOR */
+.net-monitor {
+    margin-top: 20px;
+    padding: 15px;
+    background: rgba(13, 17, 23, 0.6);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    backdrop-filter: blur(10px);
+}
+
+.net-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+}
+
+#netValue {
+    color: var(--accent);
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+}
+
+#netGraph {
+    width: 100%;
+    height: 50px;
+    display: block;
+    border-bottom: 1px solid rgba(88, 166, 255, 0.1);
+}
+
+/* TACTICAL RADAR */
+.radar-slot {
+    position: relative;
+    overflow: hidden;
+}
+
+.radar-container {
+    position: relative;
+    width: 200px;
+    height: 200px;
+    margin: 0 auto;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(13, 17, 23, 0.8) 0%, rgba(33, 38, 45, 0.8) 100%);
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(88, 166, 255, 0.1);
+    border: 1px solid rgba(88, 166, 255, 0.2);
+}
+
+#radarCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    z-index: 1;
+}
+
+.radar-grid {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background:
+        repeating-radial-gradient(transparent 0,
+            transparent 39px,
+            rgba(88, 166, 255, 0.1) 40px),
+        linear-gradient(90deg, transparent 49.5%, rgba(88, 166, 255, 0.1) 50%, transparent 50.5%),
+        linear-gradient(0deg, transparent 49.5%, rgba(88, 166, 255, 0.1) 50%, transparent 50.5%);
+    z-index: 0;
+}
+
+.radar-scan {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg,
+            transparent 0deg,
+            rgba(88, 166, 255, 0.1) 60deg,
+            rgba(88, 166, 255, 0.4) 90deg,
+            transparent 90.1deg);
+    animation: radarSpin 4s linear infinite;
+    z-index: 2;
+    pointer-events: none;
+}
+
+/* MECHANICAL VENT & CABLE EFFECTS */
+.vent-array {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px;
+    background: var(--vent-bg);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    margin: 10px 0;
+}
+
+.vent-slat {
+    height: 4px;
+    background: var(--vent-slat);
+    width: 100%;
+    border-radius: 2px;
+}
+
+.cable-line {
+    position: absolute;
+    background: linear-gradient(90deg,
+            transparent 0%,
+            var(--accent) 50%,
+            transparent 100%);
+    height: 1px;
+    width: 100%;
+    opacity: 0.2;
+    z-index: -1;
+    animation: flow 4s linear infinite;
+}
+
+@keyframes flow {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.sensor-blueprint {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: var(--accent);
+    padding: 10px;
+    border-top: 1px dashed var(--border);
+    margin-top: 10px;
+}
+
+.blueprint-tag {
+    display: inline-block;
+    background: rgba(88, 166, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-right: 5px;
+    border: 1px solid rgba(88, 166, 255, 0.2);
+}
+
+@keyframes radarSpin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 3D BLUEPRINT VIEWER */
+.blueprint-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    background: rgba(0, 0, 0, 0.95);
+    backdrop-filter: blur(20px);
+    z-index: 10001;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.4s ease;
+}
+
+.blueprint-modal.active {
+    display: flex;
+}
+
+.blueprint-container {
+    width: 90%;
+    height: 90%;
+    position: relative;
+    border: 2px solid var(--accent);
+    border-radius: 20px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 0 50px rgba(88, 166, 255, 0.2);
+}
+
+#blueprintCanvas {
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+}
+
+#blueprintCanvas:active {
+    cursor: grabbing;
+}
+
+.blueprint-controls {
+    position: absolute;
+    bottom: 30px;
+    left: 30px;
+    display: flex;
+    gap: 15px;
+    z-index: 10;
+}
+
+.blueprint-title {
+    position: absolute;
+    top: 30px;
+    left: 30px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 4px;
+    font-weight: 900;
+    font-size: 14px;
+    border-left: 4px solid var(--accent);
+    padding-left: 15px;
+    opacity: 0.8;
 }
